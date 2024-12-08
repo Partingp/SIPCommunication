@@ -29,7 +29,7 @@ namespace SIPReceiver
 
             Log = AddConsoleLogger();
 
-            _waveFile = new WaveFileWriter("output.wav", _waveFormat);
+            _waveFile = new WaveFileWriter("output.mp3", _waveFormat);
 
             _sipTransport = new SIPTransport();
             _sipTransport.AddSIPChannel(new SIPUDPChannel(new IPEndPoint(IPAddress.Any, SIP_LISTEN_PORT)));
@@ -39,11 +39,10 @@ namespace SIPReceiver
             userAgent.OnCallHungup += (dialog) => _waveFile?.Close();
             userAgent.OnIncomingCall += async (ua, req) =>
             {
-                var winAudioEP = new WindowsAudioEndPoint(new AudioEncoder(), audioOutDeviceIndex: -1, disableSource: false);
+                var winAudioEP = new WindowsAudioEndPoint(new AudioEncoder());
                 var voipMediaSession = new VoIPMediaSession(winAudioEP.ToMediaEndPoints());
                 voipMediaSession.AcceptRtpFromAny = true;
                 voipMediaSession.OnRtpPacketReceived += OnRtpPacketReceived;
-                //voipMediaSession.on
 
                 var uas = userAgent.AcceptCall(req);
                 await userAgent.Answer(uas, voipMediaSession);

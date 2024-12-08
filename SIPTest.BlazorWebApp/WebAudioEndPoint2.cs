@@ -128,11 +128,12 @@ public class WebAudioEndPoint2 : IAudioSource, IAsyncDisposable
 
             _isStarted = true;
 
-            var source = await context.CreateMediaElementSourceAsync(mediaStream);
-            var panner = await context.CreateChannelMergerAsync(1);
-            await source.ConnectAsync(panner);
-            var description = await context.GetDestinationAsync();
-            await panner.ConnectAsync(description);
+            //var source = await context.CreateMediaStreamSourceAsync(mediaStream);
+            //var panner = await context.CreateChannelMergerAsync(1);
+            //await source.ConnectAsync(panner);
+            //var description = await context.GetDestinationAsync();
+            //await panner.ConnectAsync(description);
+            //var test = await source.GetMediaStreamAsync();
 
             // Create new MediaRecorder from some existing MediaStream.
             recorder = await MediaRecorder.CreateAsync(_jsRuntime, mediaStream, new MediaRecorderOptions
@@ -284,44 +285,10 @@ public class WebAudioEndPoint2 : IAudioSource, IAsyncDisposable
         if (_isStarted && !_isPaused)
         {
             short[] shortPcmData = new short[pcmData.Length / 2];
-            //var test = Resample(shortPcmData, 16000, 44100);
-
-            //short[] pcm = pcmData.Where((x, i) => i % 2 == 0).Select((y, i) => BitConverter.ToInt16(pcmData, i * 2)).ToArray();
-            //_audioFormatManager.SetSelectedFormat(new AudioFormat(AudioCodecsEnum.PCMU, 0, 8000, 1));
             byte[] encodedSample = _audioEncoder.EncodeAudio(shortPcmData, _audioFormatManager.SelectedFormat);
             OnAudioSourceEncodedSample?.Invoke((uint)encodedSample.Length, encodedSample);
         }
     }
-
-    public static short[] Resample(short[] input, int originalRate, int targetRate)
-    {
-        // Calculate the new length based on the target rate
-        int newLength = (int)((input.Length * (double)targetRate) / originalRate);
-        short[] output = new short[newLength];
-
-        // Perform resampling by linear interpolation
-        for (int i = 0; i < newLength; i++)
-        {
-            // Find the position of the original sample in the time domain
-            double samplePosition = i * (double)originalRate / targetRate;
-
-            // Get the two closest samples to the position
-            int leftIndex = (int)Math.Floor(samplePosition);
-            int rightIndex = Math.Min(leftIndex + 1, input.Length - 1);  // Avoid out of bounds
-
-            // Linear interpolation between the two samples
-            double leftSample = input[leftIndex];
-            double rightSample = input[rightIndex];
-            double weight = samplePosition - leftIndex;
-            double interpolatedSample = leftSample * (1 - weight) + rightSample * weight;
-
-            // Store the interpolated sample in the output array
-            output[i] = (short)Math.Round(interpolatedSample);
-        }
-
-        return output;
-    }
-
 
     public MediaEndPoints ToMediaEndPoints()
     {

@@ -161,6 +161,8 @@ else
     async Task Record()
     {
         _sipCallService.StartCall(new AudioEncoder());
+        recording = true;
+        StateHasChanged();
         // if (mediaStream is null)
         //     return;
 
@@ -189,28 +191,9 @@ else
 
     async Task StopRecording()
     {
-        if (recorder is null || context is null)
-            return;
-
+        await _sipCallService.EndCall();
         recording = false;
-
-        // Stops recording
-        await recorder.StopAsync();
-
-        // // Combines and collects the total audio data.
-        // await using Blob combinedBlob = await Blob.CreateAsync(JSRuntime, [.. blobsRecorded]);
-        // var test = await combinedBlob.GetTypeAsync();
-
-        // byte[] audioData = await combinedBlob.ArrayBufferAsync();
-        // audioBuffer = await context.DecodeAudioDataAsync(audioData);
-        // //TODO - Use the below link to encode the data to G711 codec
-        // //https://github.com/sipsorcery-org/sipsorcery/blob/master/examples/SIPExamples/CustomAudioCodec/Program.cs
-
-        // Dispose of blob parts created while recording.
-        foreach (Blob blob in blobsRecorded)
-            await blob.DisposeAsync();
-
-        await StopAudioTrack();
+        StateHasChanged();
     }
 
     // async Task StartCall()
