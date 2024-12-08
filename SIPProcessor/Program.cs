@@ -1,150 +1,224 @@
-﻿using Microsoft.Extensions.Logging;
+﻿//-----------------------------------------------------------------------------
+// Filename: Program.cs
+//
+// Description: An abbreviated example program of how to use the SIPSorcery 
+// core library to place a SIP call. The example program depends on one audio 
+// input and one audio output being available.
+//
+// Author(s):
+// Aaron Clauson  (aaron@sipsorcery.com)
+// 
+// History:
+// 26 Oct 2019	Aaron Clauson	Created, Dublin, Ireland.
+// 26 Feb 2020  Aaron Clauson   Switched RTP to use RtpAVSession.
+//
+// License: 
+// BSD 3-Clause "New" or "Revised" License, see included LICENSE.md file.
+//-----------------------------------------------------------------------------
+
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Serilog;
+using Serilog.Events;
 using Serilog.Extensions.Logging;
 using SIPSorcery.Media;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
 using SIPSorcery.SIP.App;
-using SIPSorceryMedia.Abstractions;
+using SIPSorceryMedia.Windows;
+using System.Net;
 
 namespace SIPProcessor
 {
     class Program
     {
-        private static string DESTINATION = "aaron@127.0.0.1:5060";
-        private static SIPEndPoint OUTBOUND_PROXY = null;
+        //private static readonly string DEFAULT_DESTINATION_SIP_URI = "sips:helloworld@sipsorcery.cloud";
+        private static readonly string DEFAULT_DESTINATION_SIP_URI = "sip:aaron@127.0.0.1:5060";
 
-        private const string WELCOME_8K = "hellowelcome8k.raw";
-        private const string GOODBYE_16K = "goodbye16k.raw";
+        private static Microsoft.Extensions.Logging.ILogger Log = NullLogger.Instance;
 
-        static async Task Main()
+        static void Main(string[] args)
         {
-            Console.WriteLine("SIPSorcery Play Sounds Demo");
+            Console.WriteLine("SIPSorcery client user agent example.");
+            Console.WriteLine("Press ctrl-c to exit.");
 
-            AddConsoleLogger();
-            CancellationTokenSource exitCts = new CancellationTokenSource();
+            // Plumbing code to facilitate a graceful exit.
+            ManualResetEvent exitMre = new ManualResetEvent(false);
+            bool preferIPv6 = false;
+            bool isCallHungup = false;
+            bool hasCallFailed = false;
 
-            var sipTransport = new SIPTransport();
-            sipTransport.EnableTraceLogs();
+            Log = AddConsoleLogger(LogEventLevel.Debug);
 
-            var userAgent = new SIPUserAgent(sipTransport, OUTBOUND_PROXY);
-            userAgent.ClientCallFailed += (uac, error, sipResponse) => Console.WriteLine($"Call failed {error}.");
-            userAgent.ClientCallFailed += (uac, error, sipResponse) => exitCts.Cancel();
-            userAgent.OnCallHungup += (dialog) => exitCts.Cancel();
-
-            //windowsAudio.RestrictFormats(format => format.Codec == AudioCodecsEnum.G722);
-            var voipMediaSession = new VoIPMediaSession();
-            voipMediaSession.AcceptRtpFromAny = true;
-            //voipMediaSession.AudioExtrasSource.AudioSamplePeriodMilliseconds = 20;
-            //voipMediaSession.AudioLocalTrack.Capabilities.Clear();
-            voipMediaSession.AudioLocalTrack.Capabilities.Add(
-                new SDPAudioVideoMediaFormat(new AudioFormat(AudioCodecsEnum.PCMU, 118, 8000)));
-
-            Console.CancelKeyPress += delegate (object sender, ConsoleCancelEventArgs e)
+            SIPURI callUri = SIPURI.ParseSIPURI(DEFAULT_DESTINATION_SIP_URI);
+            if (args?.Length > 0)
             {
-                e.Cancel = true;
-
-                if (userAgent != null)
+                if (!SIPURI.TryParse(args[0], out callUri))
                 {
-                    if (userAgent.IsCalling || userAgent.IsRinging)
-                    {
-                        Console.WriteLine("Cancelling in progress call.");
-                        userAgent.Cancel();
-                    }
-                    else if (userAgent.IsCallActive)
-                    {
-                        Console.WriteLine("Hanging up established call.");
-                        userAgent.Hangup();
-                    }
-                };
-
-                exitCts.Cancel();
-            };
-
-            // Place the call and wait for the result.
-            var callTask = userAgent.Call(DESTINATION, null, null, voipMediaSession);
-
-            Console.WriteLine("press ctrl-c to exit...");
-
-            bool callResult = await callTask;
-
-            if (callResult)
-            {
-                Console.WriteLine($"Call to {DESTINATION} succeeded.");
-
-                try
-                {
-                    await voipMediaSession.AudioExtrasSource.StartAudio();
-
-                    //Console.WriteLine("Sending welcome message from 8KHz sample.");
-                    //await voipMediaSession.AudioExtrasSource.SendAudioFromStream(new FileStream(WELCOME_8K, FileMode.Open), AudioSamplingRatesEnum.Rate8KHz);
-
-                    //await Task.Delay(200, exitCts.Token);
-
-                    //Console.WriteLine("Sending sine wave.");
-                    //voipMediaSession.AudioExtrasSource.SetSource(AudioSourcesEnum.SineWave);
-
-                    //await Task.Delay(5000, exitCts.Token);
-
-                    //Console.WriteLine("Sending white noise signal.");
-                    //voipMediaSession.AudioExtrasSource.SetSource(AudioSourcesEnum.WhiteNoise);
-                    //await Task.Delay(2000, exitCts.Token);
-
-                    //Console.WriteLine("Sending pink noise signal.");
-                    //voipMediaSession.AudioExtrasSource.SetSource(AudioSourcesEnum.PinkNoise);
-                    //await Task.Delay(2000, exitCts.Token);
-
-                    //Console.WriteLine("Sending silence.");
-                    //voipMediaSession.AudioExtrasSource.SetSource(AudioSourcesEnum.Silence);
-
-                    //await Task.Delay(2000, exitCts.Token);
-
-                    Console.WriteLine("Playing music.");
-                    voipMediaSession.AudioExtrasSource.SetSource(AudioSourcesEnum.Music);
-
-                    await Task.Delay(5000, exitCts.Token);
-
-                    Console.WriteLine("Sending goodbye message from 16KHz sample.");
-                    await voipMediaSession.AudioExtrasSource.SendAudioFromStream(new FileStream(GOODBYE_16K, FileMode.Open), AudioSamplingRatesEnum.Rate16KHz);
-
-                    voipMediaSession.AudioExtrasSource.SetSource(AudioSourcesEnum.None);
-
-                    await voipMediaSession.AudioExtrasSource.PauseAudio();
-
-                    await Task.Delay(200, exitCts.Token);
+                    Log.LogWarning($"Command line argument could not be parsed as a SIP URI {args[0]}");
                 }
-                catch (TaskCanceledException)
-                { }
+            }
+            if (args?.Length > 1 && args[1] == "ipv6")
+            {
+                preferIPv6 = true;
+            }
 
-                // Switch to the external microphone input source.
-
-                exitCts.Token.WaitHandle.WaitOne();
+            if (preferIPv6)
+            {
+                Log.LogInformation($"Call destination {callUri}, preferencing IPv6.");
             }
             else
             {
-                Console.WriteLine($"Call to {DESTINATION} failed.");
+                Log.LogInformation($"Call destination {callUri}.");
             }
 
-            Console.WriteLine("Exiting...");
+            // Set up a default SIP transport.
+            var sipTransport = new SIPTransport();
+            sipTransport.PreferIPv6NameResolution = preferIPv6;
+            sipTransport.EnableTraceLogs();
 
-            if (userAgent?.IsHangingUp == true)
+            var audioSession = new WindowsAudioEndPoint(new AudioEncoder());
+            //audioSession.RestrictFormats(x => x.Codec == AudioCodecsEnum.PCMA || x.Codec == AudioCodecsEnum.PCMU);
+            //audioSession.RestrictFormats(x => x.Codec == AudioCodecsEnum.PCMA);
+            var rtpSession = new VoIPMediaSession(audioSession.ToMediaEndPoints());
+
+            var offerSDP = rtpSession.CreateOffer(preferIPv6 ? IPAddress.IPv6Any : IPAddress.Any);
+
+            // Create a client user agent to place a call to a remote SIP server along with event handlers for the different stages of the call.
+            var uac = new SIPClientUserAgent(sipTransport);
+            uac.CallTrying += (uac, resp) => Log.LogInformation($"{uac.CallDescriptor.To} Trying: {resp.StatusCode} {resp.ReasonPhrase}.");
+            uac.CallRinging += async (uac, resp) =>
             {
-                Console.WriteLine("Waiting 1s for the call hangup or cancel to complete...");
-                await Task.Delay(1000);
+                Log.LogInformation($"{uac.CallDescriptor.To} Ringing: {resp.StatusCode} {resp.ReasonPhrase}.");
+                if (resp.Status == SIPResponseStatusCodesEnum.SessionProgress)
+                {
+                    if (resp.Body != null)
+                    {
+                        var result = rtpSession.SetRemoteDescription(SdpType.answer, SDP.ParseSDPDescription(resp.Body));
+                        if (result == SetDescriptionResultEnum.OK)
+                        {
+                            await rtpSession.Start();
+                            Log.LogInformation($"Remote SDP set from in progress response. RTP session started.");
+                        }
+                    }
+                }
+            };
+            uac.CallFailed += (uac, err, resp) =>
+            {
+                Log.LogWarning($"Call attempt to {uac.CallDescriptor.To} Failed: {err}");
+                hasCallFailed = true;
+            };
+            uac.CallAnswered += async (iuac, resp) =>
+            {
+                if (resp.Status == SIPResponseStatusCodesEnum.Ok)
+                {
+                    Log.LogInformation($"{uac.CallDescriptor.To} Answered: {resp.StatusCode} {resp.ReasonPhrase}.");
+
+                    if (resp.Body != null)
+                    {
+                        var result = rtpSession.SetRemoteDescription(SdpType.answer, SDP.ParseSDPDescription(resp.Body));
+                        if (result == SetDescriptionResultEnum.OK)
+                        {
+                            await rtpSession.Start();
+                        }
+                        else
+                        {
+                            Log.LogWarning($"Failed to set remote description {result}.");
+                            uac.Hangup();
+                        }
+                    }
+                    else if (!rtpSession.IsStarted)
+                    {
+                        Log.LogWarning($"Failed to set get remote description in session progress or final response.");
+                        uac.Hangup();
+                    }
+                }
+                else
+                {
+                    Log.LogWarning($"{uac.CallDescriptor.To} Answered: {resp.StatusCode} {resp.ReasonPhrase}.");
+                }
+            };
+
+            // The only incoming request that needs to be explicitly handled for this example is if the remote end hangs up the call.
+            sipTransport.SIPTransportRequestReceived += async (localSIPEndPoint, remoteEndPoint, sipRequest) =>
+            {
+                if (sipRequest.Method == SIPMethodsEnum.BYE)
+                {
+                    SIPResponse okResponse = SIPResponse.GetResponse(sipRequest, SIPResponseStatusCodesEnum.Ok, null);
+                    await sipTransport.SendResponseAsync(okResponse);
+
+                    if (uac.IsUACAnswered)
+                    {
+                        Log.LogInformation("Call was hungup by remote server.");
+                        isCallHungup = true;
+                        exitMre.Set();
+                    }
+                }
+            };
+
+            // Start the thread that places the call.
+            SIPCallDescriptor callDescriptor = new SIPCallDescriptor(
+                SIPConstants.SIP_DEFAULT_USERNAME,
+                null,
+                callUri.ToString(),
+                SIPConstants.SIP_DEFAULT_FROMURI,
+                callUri.CanonicalAddress,
+                null, null, null,
+                SIPCallDirection.Out,
+                SDP.SDP_MIME_CONTENTTYPE,
+                offerSDP.ToString(),
+                null);
+
+            uac.Call(callDescriptor, null);
+
+            // Ctrl-c will gracefully exit the call at any point.
+            Console.CancelKeyPress += delegate (object sender, ConsoleCancelEventArgs e)
+            {
+                e.Cancel = true;
+                exitMre.Set();
+            };
+
+            // Wait for a signal saying the call failed, was cancelled with ctrl-c or completed.
+            exitMre.WaitOne();
+
+            Log.LogInformation("Exiting...");
+
+            rtpSession.Close(null);
+
+            if (!isCallHungup && uac != null)
+            {
+                if (uac.IsUACAnswered)
+                {
+                    Log.LogInformation($"Hanging up call to {uac.CallDescriptor.To}.");
+                    uac.Hangup();
+                }
+                else if (!hasCallFailed)
+                {
+                    Log.LogInformation($"Cancelling call to {uac.CallDescriptor.To}.");
+                    uac.Cancel();
+                }
+
+                // Give the BYE or CANCEL request time to be transmitted.
+                Log.LogInformation("Waiting 1s for call to clean up...");
+                Task.Delay(1000).Wait();
             }
 
-            // Clean up.
-            sipTransport.Shutdown();
+            if (sipTransport != null)
+            {
+                Log.LogInformation("Shutting down SIP transport...");
+                sipTransport.Shutdown();
+            }
         }
 
         /// <summary>
-        ///  Adds a console logger. Can be omitted if internal SIPSorcery debug and warning messages are not required.
+        /// Adds a console logger. Can be omitted if internal SIPSorcery debug and warning messages are not required.
         /// </summary>
-        private static Microsoft.Extensions.Logging.ILogger AddConsoleLogger()
+        private static Microsoft.Extensions.Logging.ILogger AddConsoleLogger(
+            LogEventLevel logLevel = LogEventLevel.Debug)
         {
             var serilogLogger = new LoggerConfiguration()
                 .Enrich.FromLogContext()
-                .MinimumLevel.Is(Serilog.Events.LogEventLevel.Debug)
+                .MinimumLevel.Is(logLevel)
                 .WriteTo.Console()
                 .CreateLogger();
             var factory = new SerilogLoggerFactory(serilogLogger);

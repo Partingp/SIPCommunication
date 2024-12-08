@@ -1,19 +1,4 @@
-﻿//-----------------------------------------------------------------------------
-// Filename: Program.cs
-//
-// Description: Sample program of how to receive and incoming call and record it.
-//
-// Author(s):
-// Aaron Clauson (aaron@sipsorcery.com)
-//
-// History:
-// 26 Mar 2020	Aaron Clauson	Created, Dublin, Ireland.
-//
-// License: 
-// BSD 3-Clause "New" or "Revised" License, see included LICENSE.md file.
-//-----------------------------------------------------------------------------
-
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NAudio.Wave;
 using Serilog;
@@ -44,7 +29,7 @@ namespace SIPReceiver
 
             Log = AddConsoleLogger();
 
-            _waveFile = new WaveFileWriter("output.mp3", _waveFormat);
+            _waveFile = new WaveFileWriter("output.wav", _waveFormat);
 
             _sipTransport = new SIPTransport();
             _sipTransport.AddSIPChannel(new SIPUDPChannel(new IPEndPoint(IPAddress.Any, SIP_LISTEN_PORT)));
@@ -54,10 +39,11 @@ namespace SIPReceiver
             userAgent.OnCallHungup += (dialog) => _waveFile?.Close();
             userAgent.OnIncomingCall += async (ua, req) =>
             {
-                WindowsAudioEndPoint winAudioEP = new WindowsAudioEndPoint(new AudioEncoder());
-                VoIPMediaSession voipMediaSession = new VoIPMediaSession(winAudioEP.ToMediaEndPoints());
+                var winAudioEP = new WindowsAudioEndPoint(new AudioEncoder(), audioOutDeviceIndex: -1, disableSource: false);
+                var voipMediaSession = new VoIPMediaSession(winAudioEP.ToMediaEndPoints());
                 voipMediaSession.AcceptRtpFromAny = true;
                 voipMediaSession.OnRtpPacketReceived += OnRtpPacketReceived;
+                //voipMediaSession.on
 
                 var uas = userAgent.AcceptCall(req);
                 await userAgent.Answer(uas, voipMediaSession);
@@ -93,6 +79,7 @@ namespace SIPReceiver
                 }
             }
         }
+
 
         /// <summary>
         /// Adds a console logger. Can be omitted if internal SIPSorcery debug and warning messages are not required.

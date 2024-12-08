@@ -1,0 +1,343 @@
+﻿@page "/sip-call-direct"
+@using KristofferStrube.Blazor.DOM
+@using KristofferStrube.Blazor.FileAPI
+@using KristofferStrube.Blazor.MediaCaptureStreams
+@using KristofferStrube.Blazor.MediaStreamRecording
+@using KristofferStrube.Blazor.WebAudio
+@using KristofferStrube.Blazor.WebIDL
+@using KristofferStrube.Blazor.WebIDL.Exceptions
+@using SIPSorcery.Media
+@using SIPSorcery.SIP
+@using SIPSorcery.SIP.App
+@using SIPSorceryMedia.Abstractions
+@using SIPSorceryMedia.Windows
+@using Serilog
+@using Serilog.Extensions.Logging
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@inject IJSRuntime JSRuntime
+@inject IMediaDevicesService MediaDevicesService
+@inject ISIPCallService _sipCallService
+@* @inject WebAudioEndPoint2 webAudioPoint2 *@
+<PageTitle>WebAudio - Record MediaStream</PageTitle>
+<h2>Record MediaStream</h2>
+
+<p>
+    On this page we open a <code>MediaStream</code> using the <a href="https://github.com/KristofferStrube/Blazor.MediaCaptureStreams">Blazor.MediaCaptureStreams</a> library
+    and and record it using a <code>MediaRecorder</code> from the <a href="https://github.com/KristofferStrube/Blazor.MediaStreamRecording">Blazor.MediaStreamRecording</a> library.
+
+    Once the recording is done we analyze the data using an <code>AnalyserNode</code> to find its most prominent frequency and then make it possible to play the sound at another playback rate in order to match some input frequency.
+
+</p>
+
+@if (error is { } errorMessage)
+{
+    <p style="color: red;">@errorMessage</p>
+}
+else if (mediaStream is null)
+{
+    <button class="btn btn-primary" @onclick="OpenAudio">Load Audio</button>
+}
+else
+{
+    if (!recording)
+    {
+        <button class="btn btn-primary" @onclick="Record">Record</button>
+        <br />
+        @if (audioOptions.Count > 0)
+        {
+            <label for="audioSource">Audio Source</label>
+            <select id="audioSource" @bind=selectedAudioSource @bind:after="OpenAudio">
+                @foreach (var option in audioOptions)
+                {
+                    <option value="@option.id" selected="@(option.id == selectedAudioSource)">@option.label</option>
+                }
+            </select>
+        }
+    }
+    else
+    {
+        <button class="btn btn-danger" @onclick="StopRecording">Stop Record</button>
+    }
+}
+
+@code {
+    private AudioContext? context;
+    private AnalyserNode? analyser;
+    private MediaDevices? mediaDevices;
+    private string? error;
+    private byte[] frequencyMeasurements = Array.Empty<byte>();
+    private MediaStream? mediaStream;
+    private List<(string label, string id)> audioOptions = new();
+    private string? selectedAudioSource;
+    private double peakFrequencySum = 0;
+    private double peakFrequencyCount = 0;
+    bool recording = false;
+
+    double offset = 0;
+    double duration = 0;
+
+    float playbackRate = 1;
+
+    MediaRecorder? recorder;
+    EventListener<BlobEvent>? dataAvailableEventListener;
+    List<Blob> blobsRecorded = new();
+    AudioBuffer? audioBuffer;
+
+    SIPTransport _sipTransport;
+    //TODO - Temp global until invokable works in WebAudioEndPoint
+    WebAudioEndPoint2 webAudioPoint2;
+    VoIPMediaSession _voipMediaSession;
+    Thread testThread;
+
+    private static string DESTINATION = "aaron@127.0.0.1:5060";
+    private static SIPEndPoint OUTBOUND_PROXY = null;
+
+    private const string WELCOME_8K = "hellowelcome8k.raw";
+    private const string GOODBYE_16K = "goodbye16k.raw";
+
+    // protected override void OnAfterRender(bool firstRender)
+    // {
+    //     base.OnAfterRender(firstRender);
+    //     if (firstRender)
+    //     {
+    //         // See warning about memory above in the article
+    //         var dotNetReference = DotNetObjectReference.Create(this);
+    //         JSRuntime.InvokeVoidAsync("startMicrophoneCapture", dotNetReference);
+    //     }
+    // }
+
+    async Task OpenAudio()
+    {
+        await StopAudioTrack();
+
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            if (context is null)
+            {
+                //context = await AudioContext.CreateAsync(JSRuntime);
+            }
+            if (mediaDevices is null)
+            {
+                mediaDevices = await MediaDevicesService.GetMediaDevicesAsync();
+            }
+
+            MediaTrackConstraints mediaTrackConstraints = new MediaTrackConstraints
+                {
+                    EchoCancellation = true,
+                    NoiseSuppression = true,
+                    AutoGainControl = false,
+                    DeviceId = selectedAudioSource is null ? null : new ConstrainDomString(selectedAudioSource)
+                };
+            mediaStream = await mediaDevices.GetUserMediaAsync(new MediaStreamConstraints() { Audio = mediaTrackConstraints });
+
+            var deviceInfos = await mediaDevices.EnumerateDevicesAsync();
+            audioOptions.Clear();
+            foreach (var device in deviceInfos)
+            {
+                if (await device.GetKindAsync() is MediaDeviceKind.AudioInput)
+                {
+                    audioOptions.Add((await device.GetLabelAsync(), await device.GetDeviceIdAsync()));
+                }
+            }
+
+            //analyser = await context.CreateAnalyserAsync();
+            //await using MediaStreamAudioSourceNode mediaStreamAudioSourceNode = await context.CreateMediaStreamSourceAsync(mediaStream);
+            //await mediaStreamAudioSourceNode.ConnectAsync(analyser);
+        }
+        catch (WebIDLException ex)
+        {
+            error = $"{ex.GetType().Name}: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            error = $"An unexpected error of type '{ex.GetType().Name}' happened.";
+        }
+        StateHasChanged();
+    }
+
+    async Task Record()
+    {
+        _sipCallService.StartCall(new AudioEncoder());
+        // if (mediaStream is null)
+        //     return;
+
+        // recording = true;
+        // StateHasChanged();
+
+        // // List to collect each recording part.
+        // blobsRecorded.Clear();
+
+        // // Create new MediaRecorder from some existing MediaStream.
+        // recorder = await MediaRecorder.CreateAsync(JSRuntime, mediaStream);
+
+        // // Add event listener for when each data part is available.
+        // dataAvailableEventListener =
+        //     await EventListener<BlobEvent>.CreateAsync(JSRuntime, async (BlobEvent e) =>
+        //     {
+        //         Blob blob = await e.GetDataAsync();
+        //         byte[] audioData = await blob.ArrayBufferAsync();
+        //         webAudioPoint2.OnAudioFrameCaptured(audioData);
+        //     });
+        // await recorder.AddOnDataAvailableEventListenerAsync(dataAvailableEventListener);
+
+        // // Starts Recording
+        // await recorder.StartAsync();
+    }
+
+    async Task StopRecording()
+    {
+        if (recorder is null || context is null)
+            return;
+
+        recording = false;
+
+        // Stops recording
+        await recorder.StopAsync();
+
+        // // Combines and collects the total audio data.
+        // await using Blob combinedBlob = await Blob.CreateAsync(JSRuntime, [.. blobsRecorded]);
+        // var test = await combinedBlob.GetTypeAsync();
+
+        // byte[] audioData = await combinedBlob.ArrayBufferAsync();
+        // audioBuffer = await context.DecodeAudioDataAsync(audioData);
+        // //TODO - Use the below link to encode the data to G711 codec
+        // //https://github.com/sipsorcery-org/sipsorcery/blob/master/examples/SIPExamples/CustomAudioCodec/Program.cs
+
+        // Dispose of blob parts created while recording.
+        foreach (Blob blob in blobsRecorded)
+            await blob.DisposeAsync();
+
+        await StopAudioTrack();
+    }
+
+    // async Task StartCall()
+    // {
+    //     Console.WriteLine("Starting call");
+
+    //     AddConsoleLogger();
+    //     _sipTransport = new SIPTransport();
+    //     _sipTransport.EnableTraceLogs();
+
+    //     var userAgent = new SIPUserAgent(_sipTransport, OUTBOUND_PROXY);
+    //     userAgent.ClientCallFailed += (uac, error, sipResponse) => Console.WriteLine($"Call failed {error}.");
+
+    //     //TODO - Use AudioEncoder() param
+    //     webAudioPoint2 = new WebAudioEndPoint2(JSRuntime, MediaDevicesService);
+    //     _voipMediaSession = new VoIPMediaSession(webAudioPoint2.ToMediaEndPoints());
+    //     _voipMediaSession.AcceptRtpFromAny = true;
+
+
+    //     // Place the call and wait for the result.
+    //     var callTask = userAgent.Call(DESTINATION, null, null, _voipMediaSession);
+
+    //     bool callResult = await callTask;
+
+    //     if (callResult)
+    //     {
+    //         Console.WriteLine($"Call to {DESTINATION} succeeded.");
+    //         await _voipMediaSession.Start();
+    //         // try
+    //         // {
+    //         //     await voipMediaSession.AudioExtrasSource.StartAudio();
+
+    //         //     //Console.WriteLine("Sending welcome message from 8KHz sample.");
+    //         //     //await voipMediaSession.AudioExtrasSource.SendAudioFromStream(new FileStream(WELCOME_8K, FileMode.Open), AudioSamplingRatesEnum.Rate8KHz);
+
+    //         //     //await Task.Delay(200, exitCts.Token);
+
+    //         //     //Console.WriteLine("Sending sine wave.");
+    //         //     //voipMediaSession.AudioExtrasSource.SetSource(AudioSourcesEnum.SineWave);
+
+    //         //     //await Task.Delay(5000, exitCts.Token);
+
+    //         //     //Console.WriteLine("Sending white noise signal.");
+    //         //     //voipMediaSession.AudioExtrasSource.SetSource(AudioSourcesEnum.WhiteNoise);
+    //         //     //await Task.Delay(2000, exitCts.Token);
+
+    //         //     //Console.WriteLine("Sending pink noise signal.");
+    //         //     //voipMediaSession.AudioExtrasSource.SetSource(AudioSourcesEnum.PinkNoise);
+    //         //     //await Task.Delay(2000, exitCts.Token);
+
+    //         //     //Console.WriteLine("Sending silence.");
+    //         //     //voipMediaSession.AudioExtrasSource.SetSource(AudioSourcesEnum.Silence);
+
+    //         //     //await Task.Delay(2000, exitCts.Token);
+
+    //         //     Console.WriteLine("Playing music.");
+    //         //     voipMediaSession.AudioExtrasSource.SetSource(AudioSourcesEnum.Music);
+
+    //         //     await Task.Delay(5000, CancellationToken.None);
+
+    //         //     Console.WriteLine("Sending goodbye message from 16KHz sample.");
+    //         //     await voipMediaSession.AudioExtrasSource.SendAudioFromStream(new FileStream(GOODBYE_16K, FileMode.Open), AudioSamplingRatesEnum.Rate16KHz);
+
+    //         //     voipMediaSession.AudioExtrasSource.SetSource(AudioSourcesEnum.None);
+
+    //         //     await voipMediaSession.AudioExtrasSource.PauseAudio();
+
+    //         //     await Task.Delay(200, CancellationToken.None);
+    //         // }
+    //         // catch (TaskCanceledException)
+    //         // { }
+
+    //         // Switch to the external microphone input source.
+
+    //         CancellationToken.None.WaitHandle.WaitOne();
+    //     }
+    //     else
+    //     {
+    //         Console.WriteLine($"Call to {DESTINATION} failed.");
+    //     }
+
+    //     Console.WriteLine("Exiting...");
+
+    //     if (userAgent?.IsHangingUp == true)
+    //     {
+    //         Console.WriteLine("Waiting 1s for the call hangup or cancel to complete...");
+    //         await Task.Delay(1000);
+    //     }
+
+    //     // Clean up.
+    //     _sipTransport.Shutdown();
+    // }
+
+    // [JSInvokable]
+    // public void OnAudioFrameCaptured(byte[] pcmData)
+    // {
+    //     if(_webAudioEndpoint is not null)
+    //     {
+    //         _webAudioEndpoint.OnAudioFrameCaptured(pcmData);
+    //     }
+    // }
+
+    async Task StopAudioTrack()
+    {
+        if (mediaStream is null) return;
+        var audioTrack = (await mediaStream.GetAudioTracksAsync()).FirstOrDefault();
+        if (audioTrack is not null)
+        {
+            await audioTrack.StopAsync();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await StopAudioTrack();
+    }
+
+    // private static Microsoft.Extensions.Logging.ILogger AddConsoleLogger()
+    // {
+    //     var serilogLogger = new LoggerConfiguration()
+    //         .Enrich.FromLogContext()
+    //         .MinimumLevel.Is(Serilog.Events.LogEventLevel.Debug)
+    //         .WriteTo.Console()
+    //         .CreateLogger();
+    //     var factory = new SerilogLoggerFactory(serilogLogger);
+    //     SIPSorcery.LogFactory.Set(factory);
+    //     return factory.CreateLogger<Program>();
+    // }
+}
+

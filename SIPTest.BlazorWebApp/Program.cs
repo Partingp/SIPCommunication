@@ -1,3 +1,4 @@
+using KristofferStrube.Blazor.MediaCaptureStreams;
 using SIPTest.BlazorWebApp.Components;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -5,6 +6,14 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+builder.Services.AddServerSideBlazor()
+    .AddCircuitOptions(x => x.DetailedErrors = true);
+
+//builder.Services.AddScoped<WebAudioEndPoint2>();
+builder.Services.AddScoped<ISIPCallService, SIPCallService>();
+
+builder.Services.AddMediaDevicesService();
 
 var app = builder.Build();
 
@@ -24,4 +33,4 @@ app.UseAntiforgery();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-app.Run();
+await app.RunAsync();
