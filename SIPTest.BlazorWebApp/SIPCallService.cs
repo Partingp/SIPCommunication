@@ -180,23 +180,6 @@ public class SIPCallService : ISIPCallService
         }
     }
 
-    //public void OnAudioFrameCaptured(byte[] pcmData)
-    //{
-    //    webAudioPoint2.OnAudioFrameCaptured(pcmData);
-    //}
-
-    //private static Microsoft.Extensions.Logging.ILogger AddConsoleLogger()
-    //{
-    //    var serilogLogger = new LoggerConfiguration()
-    //        .Enrich.FromLogContext()
-    //        .MinimumLevel.Is(Serilog.Events.LogEventLevel.Debug)
-    //        .WriteTo.Console()
-    //        .CreateLogger();
-    //    var factory = new SerilogLoggerFactory(serilogLogger);
-    //    SIPSorcery.LogFactory.Set(factory);
-    //    return factory.CreateLogger<Program>();
-    //}
-
     private static Microsoft.Extensions.Logging.ILogger AddConsoleLogger(
     LogEventLevel logLevel = LogEventLevel.Debug)
     {
@@ -215,6 +198,4 @@ public interface ISIPCallService
 {
     public Task StartCall(IAudioEncoder audioEncoder);
     public Task EndCall();
-
-    //public void OnAudioFrameCaptured(byte[] pcmData);
 }

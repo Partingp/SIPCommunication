@@ -111,9 +111,7 @@ else
                 }
             }
 
-            //analyser = await context.CreateAnalyserAsync();
             await using MediaStreamAudioSourceNode mediaStreamAudioSourceNode = await context.CreateMediaStreamSourceAsync(mediaStream);
-            //await mediaStreamAudioSourceNode.ConnectAsync(analyser);
         }
         catch (WebIDLException ex)
         {
