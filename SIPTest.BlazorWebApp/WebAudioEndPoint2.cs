@@ -1,5 +1,4 @@
 ﻿using KristofferStrube.Blazor.DOM;
-using KristofferStrube.Blazor.FileAPI;
 using KristofferStrube.Blazor.MediaCaptureStreams;
 using KristofferStrube.Blazor.MediaStreamRecording;
 using KristofferStrube.Blazor.WebAudio;
@@ -105,67 +104,77 @@ public class WebAudioEndPoint2 : IAudioSource, IAsyncDisposable
     /// <summary>
     /// Starts capturing audio from the microphone.
     /// </summary>
+    //public async Task StartAudio()
+    //{
+    //    if (_isStarted)
+    //        throw new InvalidOperationException("Audio capture is already running.");
+
+    //    try
+    //    {
+    //        context = await AudioContext.CreateAsync(_jsRuntime);
+    //        mediaDevices = await _mediaDevicesService.GetMediaDevicesAsync();
+    //        MediaTrackConstraints mediaTrackConstraints = new MediaTrackConstraints
+    //        {
+    //            EchoCancellation = true,
+    //            NoiseSuppression = true,
+    //            AutoGainControl = false,
+    //            SampleRate = 8000,
+    //            SampleSize = 16,
+    //            ChannelCount = 1,
+    //            //DeviceId = selectedAudioSource is null ? null : new ConstrainDomString(selectedAudioSource)
+    //        };
+    //        mediaStream = await mediaDevices.GetUserMediaAsync(new MediaStreamConstraints() { Audio = mediaTrackConstraints });
+
+    //        _isStarted = true;
+
+    //        //var source = await context.CreateMediaStreamSourceAsync(mediaStream);
+    //        //var panner = await context.CreateChannelMergerAsync(1);
+    //        //await source.ConnectAsync(panner);
+    //        //var description = await context.GetDestinationAsync();
+    //        //await panner.ConnectAsync(description);
+    //        //var test = await source.GetMediaStreamAsync();
+
+    //        // Create new MediaRecorder from some existing MediaStream.
+    //        recorder = await MediaRecorder.CreateAsync(_jsRuntime, mediaStream, new MediaRecorderOptions
+    //        {
+    //            MimeType = "audio/webm",
+    //        });
+
+    //        // Add event listener for when each data part is available.
+    //        dataAvailableEventListener =
+    //            await EventListener<BlobEvent>.CreateAsync(_jsRuntime, async (BlobEvent e) =>
+    //            {
+    //                Blob blob = await e.GetDataAsync();
+    //                byte[] audioData = await blob.ArrayBufferAsync();
+    //                //var audioBuffer = await context.DecodeAudioDataAsync(audioData);
+    //                //var offlineContext = await OfflineAudioContext.CreateAsync(_jsRuntime, 1, (ulong)audioData.Length, 16000);
+    //                //var source = await offlineContext.CreateBufferSourceAsync();
+    //                //await source.SetBufferAsync(audioData);
+    //                //source.Connect(offlineContext.GetDestinationAsync());
+    //                //source.StartAsync();
+    //                OnAudioFrameCaptured(audioData);
+
+    //            });
+    //        await recorder.AddOnDataAvailableEventListenerAsync(dataAvailableEventListener);
+
+    //        // Starts Recording
+    //        await recorder.StartAsync(20);
+    //    }
+    //    catch (Exception ex)
+    //    {
+    //        _isStarted = false;
+    //        OnAudioSourceError?.Invoke($"Failed to start audio capture: {ex.Message}");
+    //    }
+    //}
+
     public async Task StartAudio()
     {
         if (_isStarted)
             throw new InvalidOperationException("Audio capture is already running.");
 
-        try
-        {
-            context = await AudioContext.CreateAsync(_jsRuntime);
-            mediaDevices = await _mediaDevicesService.GetMediaDevicesAsync();
-            MediaTrackConstraints mediaTrackConstraints = new MediaTrackConstraints
-            {
-                EchoCancellation = true,
-                NoiseSuppression = true,
-                AutoGainControl = false,
-                SampleRate = 8000,
-                SampleSize = 16,
-                ChannelCount = 1,
-                //DeviceId = selectedAudioSource is null ? null : new ConstrainDomString(selectedAudioSource)
-            };
-            mediaStream = await mediaDevices.GetUserMediaAsync(new MediaStreamConstraints() { Audio = mediaTrackConstraints });
-
-            _isStarted = true;
-
-            //var source = await context.CreateMediaStreamSourceAsync(mediaStream);
-            //var panner = await context.CreateChannelMergerAsync(1);
-            //await source.ConnectAsync(panner);
-            //var description = await context.GetDestinationAsync();
-            //await panner.ConnectAsync(description);
-            //var test = await source.GetMediaStreamAsync();
-
-            // Create new MediaRecorder from some existing MediaStream.
-            recorder = await MediaRecorder.CreateAsync(_jsRuntime, mediaStream, new MediaRecorderOptions
-            {
-                MimeType = "audio/webm",
-            });
-
-            // Add event listener for when each data part is available.
-            dataAvailableEventListener =
-                await EventListener<BlobEvent>.CreateAsync(_jsRuntime, async (BlobEvent e) =>
-                {
-                    Blob blob = await e.GetDataAsync();
-                    byte[] audioData = await blob.ArrayBufferAsync();
-                    //var audioBuffer = await context.DecodeAudioDataAsync(audioData);
-                    //var offlineContext = await OfflineAudioContext.CreateAsync(_jsRuntime, 1, (ulong)audioData.Length, 16000);
-                    //var source = await offlineContext.CreateBufferSourceAsync();
-                    //await source.SetBufferAsync(audioData);
-                    //source.Connect(offlineContext.GetDestinationAsync());
-                    //source.StartAsync();
-                    OnAudioFrameCaptured(audioData);
-
-                });
-            await recorder.AddOnDataAvailableEventListenerAsync(dataAvailableEventListener);
-
-            // Starts Recording
-            await recorder.StartAsync(20);
-        }
-        catch (Exception ex)
-        {
-            _isStarted = false;
-            OnAudioSourceError?.Invoke($"Failed to start audio capture: {ex.Message}");
-        }
+        _isStarted = true;
+        var _dotNetReference = DotNetObjectReference.Create(this);
+        await _jsRuntime.InvokeVoidAsync("startMicrophoneCapture", _dotNetReference);
     }
 
     /// <summary>
@@ -280,13 +289,35 @@ public class WebAudioEndPoint2 : IAudioSource, IAsyncDisposable
     /// Handles audio data received from JavaScript.
     /// </summary>
     /// <param name="pcmData">Raw PCM audio data (Int16).</param>
-    public async void OnAudioFrameCaptured(byte[] pcmData)
+    //public async void OnAudioFrameCaptured(byte[] pcmData)
+    //{
+    //    if (_isStarted && !_isPaused)
+    //    {
+    //        //TODO - Up to encoding the audio correctly
+    //        short[] shortPcmData = new short[pcmData.Length / 2];
+    //        for (int i = 0; i < pcmData.Length / 2; i++)
+    //        {
+    //            shortPcmData[i] = MuLawDecoder.MuLawToLinearSample(pcmData[i]);
+    //        }
+    //        byte[] encodedSample = _audioEncoder.EncodeAudio(shortPcmData, _audioFormatManager.SelectedFormat);
+    //        OnAudioSourceEncodedSample?.Invoke((uint)encodedSample.Length, encodedSample);
+    //    }
+    //}
+
+    [JSInvokable]
+    public async void OnAudioFrameCaptured(int[] pcmData)
     {
         if (_isStarted && !_isPaused)
         {
-            short[] shortPcmData = new short[pcmData.Length / 2];
-            byte[] encodedSample = _audioEncoder.EncodeAudio(shortPcmData, _audioFormatManager.SelectedFormat);
-            OnAudioSourceEncodedSample?.Invoke((uint)encodedSample.Length, encodedSample);
+            byte[] g711Samples = Array.ConvertAll(pcmData, item => (byte)item);
+            //TODO - Up to encoding the audio correctly
+            //short[] shortPcmData = new short[pcmData.Length / 2];
+            //for (int i = 0; i < pcmData.Length / 2; i++)
+            //{
+            //    shortPcmData[i] = MuLawDecoder.MuLawToLinearSample(pcmData[i]);
+            //}
+            //byte[] encodedSample = _audioEncoder.EncodeAudio(shortPcmData, _audioFormatManager.SelectedFormat);
+            OnAudioSourceEncodedSample?.Invoke((uint)g711Samples.Length, g711Samples);
         }
     }
 

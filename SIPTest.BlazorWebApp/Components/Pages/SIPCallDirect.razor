@@ -288,12 +288,10 @@ else
     // }
 
     // [JSInvokable]
-    // public void OnAudioFrameCaptured(byte[] pcmData)
+    // public void OnAudioFrameCaptured(int[] pcmData)
     // {
-    //     if(_webAudioEndpoint is not null)
-    //     {
-    //         _webAudioEndpoint.OnAudioFrameCaptured(pcmData);
-    //     }
+    //     byte[] g711Samples = Array.ConvertAll(pcmData, item => (byte)item);
+    //     _sipCallService.OnAudioFrameCaptured(g711Samples);
     // }
 
     async Task StopAudioTrack()
